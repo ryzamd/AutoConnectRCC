@@ -14,7 +14,6 @@ from .ui import get_console
 
 
 class ProvisionState(Enum):
-    """Provisioning state machine states"""
     PENDING = "pending"
     CONNECTING = "connecting"
     GET_INFO = "getting_info"
@@ -31,16 +30,14 @@ class ProvisionState(Enum):
 
 @dataclass
 class ProvisionStep:
-    """A single provisioning step"""
     name: str
-    state: str = "pending"  # pending, progress, success, error, retry
+    state: str = "pending"
     error_message: Optional[str] = None
     retry_count: int = 0
 
 
 @dataclass
 class ProvisionedDevice:
-    """Record of a provisioned device"""
     mac: str
     ap_ssid: str
     model: str
@@ -54,7 +51,6 @@ class ProvisionedDevice:
 
 @dataclass
 class ProvisionSession:
-    """Provisioning session record (for checkpoint/recovery)"""
     session_id: str
     broker_host: str
     broker_port: int
@@ -63,7 +59,6 @@ class ProvisionSession:
     completed_at: Optional[str] = None
     
     def save_checkpoint(self, filepath: str) -> None:
-        """Save session checkpoint (no credentials!)"""
         data = {
             "session_id": self.session_id,
             "broker_host": self.broker_host,
@@ -77,7 +72,6 @@ class ProvisionSession:
     
     @classmethod
     def load_checkpoint(cls, filepath: str) -> 'ProvisionSession':
-        """Load session from checkpoint"""
         with open(filepath, 'r') as f:
             data = json.load(f)
         
@@ -95,7 +89,6 @@ class ProvisionSession:
 
 
 class RetryError(Exception):
-    """Exception indicating all retries exhausted"""
     pass
 
 
@@ -106,22 +99,6 @@ def retry_operation(
     backoff: str = "exponential",
     on_retry: Optional[Callable[[int, Exception], None]] = None
 ):
-    """
-    Retry an operation with configurable backoff
-    
-    Args:
-        operation: Function to execute
-        max_retries: Maximum retry attempts
-        delay_base: Base delay in seconds
-        backoff: "exponential" or "linear"
-        on_retry: Callback when retrying (retry_num, exception)
-    
-    Returns:
-        Operation result
-    
-    Raises:
-        RetryError: If all retries exhausted
-    """
     last_error = None
     
     for attempt in range(max_retries):
@@ -145,35 +122,15 @@ def retry_operation(
 
 
 class Provisioner:
-    """
-    Main provisioner class
-    
-    Orchestrates the complete Shelly device provisioning workflow.
-    """
-    
     def __init__(self, config: Optional[SecureConfig] = None):
-        """
-        Initialize provisioner
-        
-        Args:
-            config: SecureConfig instance (uses global if not provided)
-        """
         self.config = config or get_config()
         self.console = get_console()
         self.wifi_manager: Optional[WiFiManagerBase] = None
         self.session: Optional[ProvisionSession] = None
-        
-        # Callbacks for UI updates
         self.on_step_update: Optional[Callable[[str, str], None]] = None
         self.on_device_complete: Optional[Callable[[ProvisionedDevice], None]] = None
     
     def initialize(self) -> bool:
-        """
-        Initialize provisioner (WiFi manager, etc.)
-        
-        Returns:
-            True if initialization successful
-        """
         try:
             self.wifi_manager = get_wifi_manager()
             return True
@@ -182,7 +139,6 @@ class Provisioner:
             return False
     
     def _update_step(self, step: str, status: str) -> None:
-        """Update step status via callback"""
         if self.on_step_update:
             self.on_step_update(step, status)
     
@@ -191,21 +147,9 @@ class Provisioner:
         network: WiFiNetwork,
         device_name: Optional[str] = None
     ) -> ProvisionedDevice:
-        """
-        Provision a single Shelly device
-        
-        Args:
-            network: WiFi network info (Shelly AP)
-            device_name: Optional custom name (auto-generated if not provided)
-        
-        Returns:
-            ProvisionedDevice record
-        """
-        # Generate device name if not provided
         if not device_name:
             device_name = self.config.naming.get_next_name()
         
-        # Initialize device record
         device = ProvisionedDevice(
             mac=network.mac_address or "unknown",
             ap_ssid=network.ssid,
@@ -215,7 +159,6 @@ class Provisioner:
         )
         
         try:
-            # Step 1: Connect to Shelly AP
             self._update_step("Connecting to AP...", "progress")
             device.state = ProvisionState.CONNECTING.value
             
@@ -228,15 +171,13 @@ class Provisioner:
             )
             
             if not success:
-                raise Exception("Failed to connect to Shelly AP")
+                raise Exception("Failed to connect to AP")
             
             self._update_step("Connecting to AP...", "success")
             device.steps_completed.append("connect_ap")
             
-            # Give WiFi time to stabilize
             time.sleep(3)
             
-            # Step 2: Get device information
             self._update_step("Getting device info...", "progress")
             device.state = ProvisionState.GET_INFO.value
             
@@ -249,14 +190,12 @@ class Provisioner:
                 on_retry=lambda n, e: self._update_step(f"Getting device info... (retry {n})", "retry")
             )
             
-            # Update device record with actual info
             device.mac = device_info.mac
             device.model = device_info.friendly_name
             
             self._update_step("Getting device info...", "success")
             device.steps_completed.append("get_info")
             
-            # Step 3: Configure MQTT
             self._update_step("Configuring MQTT...", "progress")
             device.state = ProvisionState.CONFIG_MQTT.value
             
@@ -266,7 +205,7 @@ class Provisioner:
                     port=self.config.broker.port,
                     username=self.config.broker.username,
                     password=self.config.broker.password,
-                    topic_prefix=device_name  # Use custom name as topic prefix
+                    topic_prefix=device_name
                 ),
                 max_retries=self.config.options.max_retries,
                 delay_base=self.config.options.retry_delay_base,
@@ -276,7 +215,6 @@ class Provisioner:
             self._update_step("Configuring MQTT...", "success")
             device.steps_completed.append("config_mqtt")
             
-            # Step 4: Configure WiFi
             self._update_step("Configuring WiFi...", "progress")
             device.state = ProvisionState.CONFIG_WIFI.value
             
@@ -284,7 +222,7 @@ class Provisioner:
                 lambda: api.configure_wifi(
                     ssid=self.config.wifi.ssid,
                     password=self.config.wifi.password,
-                    enable_ap=False  # Disable AP to hide Shelly
+                    enable_ap=True
                 ),
                 max_retries=self.config.options.max_retries,
                 delay_base=self.config.options.retry_delay_base,
@@ -294,7 +232,6 @@ class Provisioner:
             self._update_step("Configuring WiFi...", "success")
             device.steps_completed.append("config_wifi")
             
-            # Step 5: Disable Cloud
             if self.config.options.disable_shelly_cloud:
                 self._update_step("Disabling cloud...", "progress")
                 device.state = ProvisionState.DISABLE_CLOUD.value
@@ -304,10 +241,8 @@ class Provisioner:
                     self._update_step("Disabling cloud...", "success")
                     device.steps_completed.append("disable_cloud")
                 except Exception:
-                    # Cloud disable is optional
                     self._update_step("Disabling cloud...", "success")
             
-            # Step 6: Set device name
             self._update_step(f"Renaming to {device_name}...", "progress")
             device.state = ProvisionState.RENAME.value
             
@@ -317,30 +252,30 @@ class Provisioner:
                 self._update_step(f"Renaming to {device_name}...", "success")
                 device.steps_completed.append("rename")
             except Exception:
-                # Rename is optional
                 self._update_step(f"Renaming to {device_name}...", "success")
-            
-            # Step 7: Reboot device to apply changes
+
             self._update_step("Rebooting device...", "progress")
             
             try:
                 api.reboot()
-            except Exception:
-                # Reboot request often times out
-                pass
+                self._update_step("Reboot command sent successfully", "success")
+            except Exception as e:
+                if "Timeout" in str(e) or "Connection aborted" in str(e):
+                    self._update_step("Rebooting...", "success")
+                else:
+                     self._update_step(f"Reboot warning: {str(e)}", "success")
             
-            self._update_step("Rebooting device...", "success")
             device.steps_completed.append("reboot")
             
-            # Mark as completed
+            # Step 8: Wait a moment for device to start reboot
+            time.sleep(10)
+            
             device.state = ProvisionState.COMPLETED.value
             
         except RetryError as e:
             device.state = ProvisionState.FAILED.value
             device.error_message = str(e)
             self._update_step("Failed", "error")
-            
-            # Attempt rollback
             self._rollback_device(api if 'api' in dir() else None, device)
             
         except Exception as e:
@@ -348,23 +283,14 @@ class Provisioner:
             device.error_message = str(e)
             self._update_step(f"Error: {str(e)}", "error")
         
-        # Notify completion
         if self.on_device_complete:
             self.on_device_complete(device)
         
         return device
     
     def _rollback_device(self, api: Optional[ShellyAPI], device: ProvisionedDevice) -> None:
-        """
-        Attempt to rollback failed provisioning
-        
-        Args:
-            api: ShellyAPI instance (if available)
-            device: Device record
-        """
         try:
             if api and "config_mqtt" in device.steps_completed:
-                # Disable MQTT if it was configured
                 api.configure_mqtt(
                     server="",
                     enable=False
@@ -372,7 +298,6 @@ class Provisioner:
             
             device.state = ProvisionState.ROLLED_BACK.value
         except Exception:
-            # Rollback failed - device may be in inconsistent state
             pass
     
     def provision_batch(
@@ -380,24 +305,12 @@ class Provisioner:
         networks: List[WiFiNetwork],
         progress_callback: Optional[Callable[[int, int, WiFiNetwork], None]] = None
     ) -> List[ProvisionedDevice]:
-        """
-        Provision multiple devices sequentially
-        
-        Args:
-            networks: List of Shelly networks to provision
-            progress_callback: Called with (current, total, network) before each device
-        
-        Returns:
-            List of ProvisionedDevice records
-        """
-        # Create session
         self.session = ProvisionSession(
             session_id=datetime.now().strftime("%Y%m%d_%H%M%S"),
             broker_host=self.config.broker.address,
             broker_port=self.config.broker.port
         )
         
-        # Save original WiFi network
         original_network = self.wifi_manager.get_current_network()
         
         results: List[ProvisionedDevice] = []
@@ -406,45 +319,26 @@ class Provisioner:
             if progress_callback:
                 progress_callback(i + 1, len(networks), network)
             
-            # Provision device
             device = self.provision_device(network)
             results.append(device)
             
-            # Add to session
             self.session.devices.append(device)
             
-            # Save checkpoint after each device
             checkpoint_path = f"rcc_checkpoint_{self.session.session_id}.json"
             self.session.save_checkpoint(checkpoint_path)
             
-            # Small delay between devices
             if i < len(networks) - 1:
                 time.sleep(2)
         
-        # Mark session complete
         self.session.completed_at = datetime.now().isoformat()
         self.session.save_checkpoint(f"rcc_checkpoint_{self.session.session_id}.json")
         
-        # Attempt to reconnect to original network
         if original_network:
             self.console.print(f"\n[info]Reconnecting to {original_network}...[/info]")
-            # Note: User will need to provide password for reconnection
-            # This is handled in the main flow
         
         return results
     
     def verify_device(self, device: ProvisionedDevice) -> bool:
-        """
-        Verify a provisioned device is connected to MQTT broker
-        
-        Args:
-            device: Provisioned device record
-        
-        Returns:
-            True if device is connected
-        """
-        # For now, just verify broker is reachable
-        # Full verification would require subscribing to MQTT topic
         return verify_broker(
             self.config.broker.address,
             self.config.broker.port
@@ -452,12 +346,6 @@ class Provisioner:
 
 
 def create_provisioner() -> Provisioner:
-    """
-    Create and initialize a provisioner instance
-    
-    Returns:
-        Initialized Provisioner
-    """
     provisioner = Provisioner()
     provisioner.initialize()
     return provisioner

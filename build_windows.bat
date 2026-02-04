@@ -38,6 +38,7 @@ pyinstaller ^
     --name RCC ^
     --add-data "src/rcc;rcc" ^
     --hidden-import=zeroconf ^
+    --hidden-import=paho.mqtt.client ^
     --hidden-import=requests ^
     --hidden-import=rich.console ^
     --hidden-import=rich.table ^

@@ -21,27 +21,6 @@ RCC_BANNER_COMPACT = r"""
 [/primary]
 """
 
-# Stylized banner with box characters (matching user's image style)
-RCC_BANNER_STYLED = r"""
-[primary]┌──────┐ ┌──────┐ ┌──────┐[/primary]
-[primary]│[/primary][secondary]██████ [/secondary][primary]│ │[/primary][secondary]██████[/secondary][primary]│ │[/primary][secondary]██████[/secondary][primary]│[/primary]
-[primary]│[/primary][secondary]██  ███[/secondary][primary]│ │[/primary][secondary]██[/secondary][primary]    │ │[/primary][secondary]██[/secondary][primary]    │[/primary]
-[primary]│[/primary][secondary]██████ [/secondary][primary]│ │[/primary][secondary]██[/secondary][primary]    │ │[/primary][secondary]██[/secondary][primary]    │[/primary]
-[primary]│[/primary][secondary]██   ██[/secondary][primary]│ │[/primary][secondary]██[/secondary][primary]    │ │[/primary][secondary]██[/secondary][primary]    │[/primary]
-[primary]│[/primary][secondary]██   ██[/secondary][primary]│ │[/primary][secondary]██████[/secondary][primary]│ │[/primary][secondary]██████[/secondary][primary]│[/primary]
-[primary]└──────┘ └──────┘ └──────┘[/primary]
-"""
-
-# Simple block banner
-RCC_BANNER_BLOCKS = """
-[primary]██████╗   ██████╗   ██████╗[/primary]
-[primary]██[/primary][dim]╔══[/dim][primary]██╗  ██[/primary][dim]╔════╝[/dim]  [primary]██[/primary][dim]╔════╝[/dim]
-[primary]██████[/primary][dim]╔╝[/dim]  [primary]██[/primary][dim]║[/dim]       [primary]██[/primary][dim]║[/dim]     
-[primary]██[/primary][dim]╔══[/dim][primary]██╗  ██[/primary][dim]║[/dim]       [primary]██[/primary][dim]║[/dim]     
-[primary]██[/primary][dim]║[/dim]  [primary]██[/primary][dim]║[/dim]  [dim]╚[/dim][primary]██████╗  [/primary][dim]╚[/dim][primary]██████╗[/primary]
-[dim]╚═╝  ╚═╝   ╚═════╝   ╚═════╝[/dim]
-"""
-
 SUBTITLE = "[dim]P R O V I S I O N E R   v1.0.0[/dim]"
 
 DIVIDER = "[secondary]─────────────────────────────────────────[/secondary]"

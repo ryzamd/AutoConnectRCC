@@ -11,116 +11,84 @@ from .ui import get_console
 
 @dataclass
 class WiFiNetwork:
-    """Represents a WiFi network"""
     ssid: str
-    signal: int  # Signal strength in dBm or percentage
+    signal: int
     security: str = "Open"
     bssid: Optional[str] = None
     
     @property
     def is_shelly(self) -> bool:
-        """Check if this is a Shelly AP"""
         return self.ssid.lower().startswith("shelly")
     
     @property
     def shelly_model(self) -> str:
-        """Extract Shelly model from SSID"""
         if not self.is_shelly:
             return "Unknown"
         
-        # Parse model from SSID like "ShellyPlus1-A8032ABE54DC"
-        ssid_lower = self.ssid.lower()
+        if self.mac_address:
+            model_part = "Unknown"
+            if self.ssid.lower().startswith("shelly"):
+                base = self.ssid[6:]
+                if "-" in base:
+                    model_part = base.split("-")[0]
+            
+            return f"Device-[{model_part}]"
         
-        if "plus1pm" in ssid_lower:
-            return "Plus 1PM"
-        elif "plus1" in ssid_lower:
-            return "Plus 1"
-        elif "plus2pm" in ssid_lower:
-            return "Plus 2PM"
-        elif "pro4pm" in ssid_lower:
-            return "Pro 4PM"
-        elif "pro2pm" in ssid_lower:
-            return "Pro 2PM"
-        elif "pro1pm" in ssid_lower:
-            return "Pro 1PM"
-        elif "pro1" in ssid_lower:
-            return "Pro 1"
-        elif "plugs" in ssid_lower:
-            return "Plug S"
-        elif "mini1" in ssid_lower:
-            return "Mini 1"
-        else:
-            return "Unknown Model"
+        return "Device (Unknown)"
     
     @property
     def mac_address(self) -> Optional[str]:
-        """Extract MAC address from Shelly SSID"""
         if not self.is_shelly:
             return None
         
-        # MAC is usually the last part after the hyphen
         parts = self.ssid.split("-")
         if len(parts) >= 2:
             mac = parts[-1].upper()
-            # Validate it looks like a MAC (12 hex chars)
             if len(mac) == 12 and all(c in "0123456789ABCDEF" for c in mac):
                 return mac
         return None
 
 
 class WiFiManagerBase(ABC):
-    """Abstract base class for WiFi management"""
-    
     def __init__(self):
         self.console = get_console()
         self._original_network: Optional[str] = None
     
     @abstractmethod
     def get_current_network(self) -> Optional[str]:
-        """Get currently connected WiFi SSID"""
         pass
     
     @abstractmethod
     def scan_networks(self) -> List[WiFiNetwork]:
-        """Scan for available WiFi networks"""
         pass
     
     @abstractmethod
     def connect(self, ssid: str, password: str = "", timeout: int = 30) -> bool:
-        """Connect to a WiFi network"""
         pass
     
     @abstractmethod
     def disconnect(self) -> bool:
-        """Disconnect from current WiFi network"""
         pass
     
     def save_original_network(self) -> None:
-        """Save current network to reconnect later"""
         self._original_network = self.get_current_network()
     
     def restore_original_network(self, password: str = "") -> bool:
-        """Reconnect to the original network"""
         if self._original_network:
             return self.connect(self._original_network, password)
         return False
     
     def scan_shelly_networks(self) -> List[WiFiNetwork]:
-        """Scan and filter only Shelly AP networks"""
         all_networks = self.scan_networks()
         shelly_networks = [n for n in all_networks if n.is_shelly]
-        # Sort by signal strength (strongest first)
         shelly_networks.sort(key=lambda n: n.signal, reverse=True)
         return shelly_networks
     
     def connect_to_shelly(self, ssid: str, timeout: int = 30) -> bool:
-        """Connect to Shelly AP (no password required)"""
         return self.connect(ssid, password="", timeout=timeout)
 
 
 class WindowsWiFiManager(WiFiManagerBase):
-    """WiFi manager for Windows using netsh"""
-    
     def get_current_network(self) -> Optional[str]:
         try:
             result = subprocess.run(
@@ -132,7 +100,6 @@ class WindowsWiFiManager(WiFiManagerBase):
             
             for line in result.stdout.split("\n"):
                 if "SSID" in line and "BSSID" not in line:
-                    # Extract SSID value
                     parts = line.split(":", 1)
                     if len(parts) == 2:
                         ssid = parts[1].strip()
@@ -159,11 +126,9 @@ class WindowsWiFiManager(WiFiManagerBase):
                 line = line.strip()
                 
                 if line.startswith("SSID") and "BSSID" not in line:
-                    # Save previous network if exists
                     if current_network.get("ssid"):
                         networks.append(WiFiNetwork(**current_network))
                     
-                    # Start new network
                     parts = line.split(":", 1)
                     ssid = parts[1].strip() if len(parts) > 1 else ""
                     current_network = {"ssid": ssid, "signal": 0, "security": "Open"}
@@ -173,9 +138,7 @@ class WindowsWiFiManager(WiFiManagerBase):
                     if len(parts) > 1:
                         signal_str = parts[1].strip().replace("%", "")
                         try:
-                            # Convert percentage to approximate dBm
                             signal_pct = int(signal_str)
-                            # Rough conversion: -30dBm = 100%, -90dBm = 0%
                             current_network["signal"] = int(-30 - (100 - signal_pct) * 0.6)
                         except ValueError:
                             current_network["signal"] = 0
@@ -190,7 +153,6 @@ class WindowsWiFiManager(WiFiManagerBase):
                     if len(parts) > 1:
                         current_network["bssid"] = parts[1].strip()
             
-            # Don't forget the last network
             if current_network.get("ssid"):
                 networks.append(WiFiNetwork(**current_network))
             
@@ -201,7 +163,6 @@ class WindowsWiFiManager(WiFiManagerBase):
     
     def connect(self, ssid: str, password: str = "", timeout: int = 30) -> bool:
         try:
-            # First, try to connect using existing profile
             result = subprocess.run(
                 ["netsh", "wlan", "connect", f"name={ssid}"],
                 capture_output=True,
@@ -210,11 +171,9 @@ class WindowsWiFiManager(WiFiManagerBase):
             )
             
             if result.returncode != 0 or "is not found" in result.stdout:
-                # Need to create a profile first
                 if not self._create_profile(ssid, password):
                     return False
                 
-                # Try connecting again
                 result = subprocess.run(
                     ["netsh", "wlan", "connect", f"name={ssid}"],
                     capture_output=True,
@@ -225,17 +184,13 @@ class WindowsWiFiManager(WiFiManagerBase):
             if result.returncode != 0:
                 return False
             
-            # Wait for connection
             return self._wait_for_connection(ssid, timeout)
             
         except Exception:
             return False
     
     def _create_profile(self, ssid: str, password: str = "") -> bool:
-        """Create a WiFi profile for connection"""
-        # Create XML profile
         if password:
-            # WPA2 profile
             profile_xml = f'''<?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
     <name>{ssid}</name>
@@ -262,7 +217,6 @@ class WindowsWiFiManager(WiFiManagerBase):
     </MSM>
 </WLANProfile>'''
         else:
-            # Open network profile
             profile_xml = f'''<?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
     <name>{ssid}</name>
@@ -285,13 +239,11 @@ class WindowsWiFiManager(WiFiManagerBase):
 </WLANProfile>'''
         
         try:
-            # Save profile to temp file
             import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
                 f.write(profile_xml)
                 profile_path = f.name
             
-            # Add profile
             result = subprocess.run(
                 ["netsh", "wlan", "add", "profile", f"filename={profile_path}"],
                 capture_output=True,
@@ -299,7 +251,6 @@ class WindowsWiFiManager(WiFiManagerBase):
                 timeout=10
             )
             
-            # Clean up temp file
             import os
             os.unlink(profile_path)
             
@@ -309,13 +260,11 @@ class WindowsWiFiManager(WiFiManagerBase):
             return False
     
     def _wait_for_connection(self, ssid: str, timeout: int) -> bool:
-        """Wait for WiFi connection to establish"""
         start_time = time.time()
         
         while time.time() - start_time < timeout:
             current = self.get_current_network()
             if current and current.lower() == ssid.lower():
-                # Give it a moment to fully establish
                 time.sleep(2)
                 return True
             time.sleep(1)
@@ -336,14 +285,11 @@ class WindowsWiFiManager(WiFiManagerBase):
 
 
 class MacOSWiFiManager(WiFiManagerBase):
-    """WiFi manager for macOS using networksetup and airport"""
-    
     def __init__(self):
         super().__init__()
         self._interface = self._get_wifi_interface()
     
     def _get_wifi_interface(self) -> str:
-        """Get the WiFi interface name (usually en0 or en1)"""
         try:
             result = subprocess.run(
                 ["networksetup", "-listallhardwareports"],
@@ -355,13 +301,12 @@ class MacOSWiFiManager(WiFiManagerBase):
             lines = result.stdout.split("\n")
             for i, line in enumerate(lines):
                 if "Wi-Fi" in line or "AirPort" in line:
-                    # Next line contains the device
                     if i + 1 < len(lines):
                         device_line = lines[i + 1]
                         if "Device:" in device_line:
                             return device_line.split(":")[1].strip()
             
-            return "en0"  # Default fallback
+            return "en0"
         except Exception:
             return "en0"
     
@@ -388,7 +333,6 @@ class MacOSWiFiManager(WiFiManagerBase):
         networks = []
         
         try:
-            # Use airport utility for scanning
             airport_path = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
             
             result = subprocess.run(
@@ -400,17 +344,12 @@ class MacOSWiFiManager(WiFiManagerBase):
             
             lines = result.stdout.strip().split("\n")
             
-            # Skip header line
             for line in lines[1:]:
                 if not line.strip():
                     continue
                 
-                # Parse airport output format
-                # SSID                            BSSID             RSSI CHANNEL HT CC SECURITY
                 parts = line.split()
                 if len(parts) >= 4:
-                    # SSID might contain spaces, so we need to be careful
-                    # RSSI is typically a negative number
                     rssi_idx = None
                     for i, part in enumerate(parts):
                         if part.startswith("-") and part[1:].isdigit():
@@ -451,20 +390,18 @@ class MacOSWiFiManager(WiFiManagerBase):
             if result.returncode != 0:
                 return False
             
-            # Wait for connection
             return self._wait_for_connection(ssid, timeout)
             
         except Exception:
             return False
     
     def _wait_for_connection(self, ssid: str, timeout: int) -> bool:
-        """Wait for WiFi connection to establish"""
         start_time = time.time()
         
         while time.time() - start_time < timeout:
             current = self.get_current_network()
             if current and current.lower() == ssid.lower():
-                time.sleep(2)  # Give it a moment to fully establish
+                time.sleep(2)
                 return True
             time.sleep(1)
         
@@ -494,12 +431,6 @@ class MacOSWiFiManager(WiFiManagerBase):
 
 
 def get_wifi_manager() -> WiFiManagerBase:
-    """
-    Get the appropriate WiFi manager for the current platform
-    
-    Returns:
-        WiFiManagerBase instance for the current OS
-    """
     system = platform.system().lower()
     
     if system == "windows":

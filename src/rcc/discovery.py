@@ -3,64 +3,90 @@ import subprocess
 import platform
 import re
 import time
+import concurrent.futures
 from typing import Optional, List, Tuple
 from dataclasses import dataclass
 
 from .ui import get_console
 
+try:
+    from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+except ImportError:
+    pass
+
 
 @dataclass
 class DiscoveredBroker:
-    """Discovered MQTT broker information"""
     ip: str
     hostname: Optional[str] = None
     port: int = 1883
-    method: str = "unknown"  # How it was discovered
+    method: str = "unknown"
 
 
 class BrokerDiscovery:
-    """
-    Discover MQTT broker on the network
-    
-    Uses multiple methods with fallback:
-    1. mDNS (hostname.local) resolution
-    2. Network scanning with hostname detection
-    3. Manual IP input
-    """
-    
     def __init__(self):
         self.console = get_console()
         self._system = platform.system().lower()
     
-    def discover(self, hostname: str = "raspi-RCC") -> Optional[DiscoveredBroker]:
-        """
-        Attempt to discover broker using all available methods
+    def discover(self, hostname: str = "RCCServer") -> Optional[DiscoveredBroker]:
+        result = self._try_ping_discovery(hostname)
+        if result:
+            return result
         
-        Args:
-            hostname: Expected hostname of the Raspberry Pi
-        
-        Returns:
-            DiscoveredBroker if found, None otherwise
-        """
-        # Method 1: Try mDNS resolution
         result = self._try_mdns(hostname)
         if result:
             return result
         
-        # Method 2: Try zeroconf service discovery
         result = self._try_zeroconf()
         if result:
             return result
         
-        # Method 3: Try network scan
         result = self._try_network_scan(hostname)
         if result:
             return result
         
         return None
     
+    def _try_ping_discovery(self, hostname: str) -> Optional[DiscoveredBroker]:
+       
+        mdns_name = f"{hostname}.local"
+        
+        try:
+            if self._system == "windows":
+                cmd = ["ping", "-n", "1", "-4", mdns_name]
+            else:
+                cmd = ["ping", "-c", "1", mdns_name]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0:
+                output = result.stdout
+                
+                ip_pattern = r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
+                matches = re.findall(ip_pattern, output)
+                
+                if matches:
+                    ip = matches[0]
+                    
+                    if not ip.startswith('127.') and not ip.startswith('0.'):
+                        return DiscoveredBroker(
+                            ip=ip,
+                            hostname=hostname,
+                            method="ping"
+                        )
+        except subprocess.TimeoutExpired:
+            pass
+        except Exception:
+            pass
+        
+        return None
+    
     def _try_mdns(self, hostname: str) -> Optional[DiscoveredBroker]:
-        """Try to resolve hostname via mDNS (.local domain)"""
         mdns_name = f"{hostname}.local"
         
         try:
@@ -76,9 +102,11 @@ class BrokerDiscovery:
             return None
     
     def _try_zeroconf(self) -> Optional[DiscoveredBroker]:
-        """Try to discover broker using Zeroconf/Bonjour"""
         try:
-            from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+            if 'Zeroconf' not in globals():
+                return None
+            
+            import threading
             import threading
             
             class MQTTListener(ServiceListener):
@@ -128,38 +156,30 @@ class BrokerDiscovery:
         return None
     
     def _try_network_scan(self, hostname: str) -> Optional[DiscoveredBroker]:
-        """Scan local network for the broker"""
-        # Get local IP to determine network range
         local_ip = self._get_local_ip()
         if not local_ip:
             return None
         
-        # Extract network prefix (e.g., "192.168.1")
         network_prefix = ".".join(local_ip.split(".")[:-1])
         
-        # Try ARP table first (faster)
         result = self._scan_arp_table(hostname)
         if result:
             return result
         
-        # Try ping scan with hostname check
         result = self._scan_network(network_prefix, hostname)
         return result
     
     def _get_local_ip(self) -> Optional[str]:
-        """Get local IP address"""
         try:
-            # Create a socket to determine local IP
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))  # Doesn't actually connect
+            s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
             s.close()
             return ip
         except Exception:
             return None
     
-    def _scan_arp_table(self, hostname: str) -> Optional[DiscoveredBroker]:
-        """Check ARP table for the device"""
+    def _scan_arp_table(self, hostname: str, mac_address: Optional[str] = None) -> Optional[DiscoveredBroker]:
         try:
             if self._system == "windows":
                 result = subprocess.run(
@@ -176,113 +196,154 @@ class BrokerDiscovery:
                     timeout=10
                 )
             
-            # Parse ARP output and look for Raspberry Pi MAC addresses
-            # Raspberry Pi MACs start with: b8:27:eb, dc:a6:32, e4:5f:01
+            target_mac = None
+            if mac_address:
+                target_mac = mac_address.lower().replace(":", "").replace("-", "")
+            
             pi_mac_prefixes = ["b8:27:eb", "dc:a6:32", "e4:5f:01", "28:cd:c1"]
             
             for line in result.stdout.lower().split("\n"):
-                for prefix in pi_mac_prefixes:
-                    if prefix in line:
-                        # Extract IP from line
+                clean_line = line.replace("-", ":")
+                
+                if target_mac:
+                    line_hex = re.sub(r'[^a-f0-9]', '', line)
+                    if target_mac in line_hex:
                         ip_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', line)
                         if ip_match:
-                            ip = ip_match.group(1)
-                            # Verify this is our broker by checking hostname
-                            if self._verify_hostname(ip, hostname):
-                                return DiscoveredBroker(
-                                    ip=ip,
-                                    hostname=hostname,
-                                    method="ARP scan"
-                                )
+                            return DiscoveredBroker(
+                                ip=ip_match.group(1),
+                                hostname=hostname,
+                                method="ARP MAC match"
+                            )
+                
+                elif any(prefix in clean_line for prefix in pi_mac_prefixes):
+                    ip_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', line)
+                    if ip_match:
+                        ip = ip_match.group(1)
+                        if self._verify_hostname(ip, hostname):
+                            return DiscoveredBroker(
+                                ip=ip,
+                                hostname=hostname,
+                                method="ARP scan"
+                            )
         except Exception:
             pass
         
         return None
     
-    def _scan_network(self, network_prefix: str, hostname: str) -> Optional[DiscoveredBroker]:
-        """Scan network range for the broker"""
-        # Quick ping scan of common addresses
-        common_ips = [1, 2, 50, 100, 111, 150, 200, 254]
-        
-        for last_octet in common_ips:
-            ip = f"{network_prefix}.{last_octet}"
-            if self._is_host_alive(ip):
-                if self._verify_hostname(ip, hostname):
-                    return DiscoveredBroker(
-                        ip=ip,
-                        hostname=hostname,
-                        method="Network scan"
-                    )
-        
-        return None
-    
-    def _is_host_alive(self, ip: str) -> bool:
-        """Check if host responds to ping"""
+    def _ping_host(self, ip: str) -> None:
         try:
             if self._system == "windows":
-                cmd = ["ping", "-n", "1", "-w", "500", ip]
+                cmd = ["ping", "-n", "1", "-w", "200", ip]
             else:
                 cmd = ["ping", "-c", "1", "-W", "1", ip]
-            
-            result = subprocess.run(
+                
+            subprocess.run(
                 cmd,
-                capture_output=True,
-                timeout=2
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=1
             )
-            return result.returncode == 0
         except Exception:
-            return False
-    
-    def _verify_hostname(self, ip: str, expected_hostname: str) -> bool:
-        """Verify the hostname of a discovered IP"""
-        try:
-            # Try reverse DNS lookup
-            hostname, _, _ = socket.gethostbyaddr(ip)
-            return expected_hostname.lower() in hostname.lower()
-        except Exception:
-            # If reverse lookup fails, try connecting to check if it's a Mosquitto broker
-            return self._check_mqtt_port(ip)
-    
-    def _check_mqtt_port(self, ip: str, port: int = 1883) -> bool:
-        """Check if MQTT port is open"""
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2)
-            result = sock.connect_ex((ip, port))
-            sock.close()
-            return result == 0
-        except Exception:
-            return False
-    
+            pass
+
+    def _populate_arp_table(self, timeout: float = 2.0) -> None:
+        local_ip = self._get_local_ip()
+        if not local_ip:
+            return
+
+        network_prefix = ".".join(local_ip.split(".")[:-1])
+        
+        ips = [f"{network_prefix}.{i}" for i in range(1, 255)]
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            executor.map(self._ping_host, ips)
+
     def verify_broker_connection(self, ip: str, port: int = 1883) -> bool:
-        """Verify broker is accessible"""
-        return self._check_mqtt_port(ip, port)
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(2.0)
+            s.connect((ip, port))
+            s.close()
+            return True
+        except Exception:
+            return False
+    
+    def _verify_hostname(self, ip: str, hostname: str) -> bool:
+        return self.verify_broker_connection(ip)
+
+    def _scan_network(self, network_prefix: str, hostname: str) -> Optional[DiscoveredBroker]:
+        found_broker = None
+        
+        def check_host(ip):
+            nonlocal found_broker
+            if found_broker:
+                return
+            
+            try:
+                if self._system == "windows":
+                    cmd = ["ping", "-n", "1", "-w", "200", ip]
+                else:
+                    cmd = ["ping", "-c", "1", "-W", "1", ip]
+                    
+                result = subprocess.run(
+                    cmd, 
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL,
+                    timeout=1
+                )
+                
+                if result.returncode == 0:
+                    if self._verify_hostname(ip, hostname):
+                        found_broker = DiscoveredBroker(
+                            ip=ip,
+                            hostname=hostname,
+                            method="Deep Network Scan"
+                        )
+            except Exception:
+                pass
+
+        ips = [f"{network_prefix}.{i}" for i in range(1, 255)]
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            list(executor.map(check_host, ips))
+            
+        return found_broker
 
 
-def discover_broker(hostname: str = "raspi-RCC") -> Optional[DiscoveredBroker]:
-    """
-    Convenience function to discover MQTT broker
+def resolve_hostname(hostname: str, mac_address: Optional[str] = None) -> Optional[str]:
+    discovery = BrokerDiscovery()
+    if mac_address:
+        res = discovery._scan_arp_table(hostname, mac_address)
+        if res:
+            return res.ip
+        
+        discovery._populate_arp_table()
+        
+        res = discovery._scan_arp_table(hostname, mac_address)
+        if res:
+            return res.ip
     
-    Args:
-        hostname: Expected hostname of the Raspberry Pi
-    
-    Returns:
-        DiscoveredBroker if found, None otherwise
-    """
+    res = discovery._try_ping_discovery(hostname)
+    if res:
+        return res.ip
+        
+    res = discovery._try_mdns(hostname)
+    if res:
+        return res.ip
+        
+    if not mac_address:
+        res = discovery._scan_arp_table(hostname)
+        if res:
+            return res.ip
+    return None
+
+
+def discover_broker(hostname: str = "RCCServer") -> Optional[DiscoveredBroker]:
     discovery = BrokerDiscovery()
     return discovery.discover(hostname)
 
 
 def verify_broker(ip: str, port: int = 1883) -> bool:
-    """
-    Verify broker is accessible
-    
-    Args:
-        ip: Broker IP address
-        port: MQTT port (default 1883)
-    
-    Returns:
-        True if broker is accessible
-    """
     discovery = BrokerDiscovery()
     return discovery.verify_broker_connection(ip, port)

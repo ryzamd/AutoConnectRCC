@@ -63,11 +63,11 @@ class RCCConsole:
     def show_main_menu(self, broker_status: Optional[str] = None) -> str:
         """Display main menu and get user selection"""
         self.console.print()
-        self.console.print("[menu.key][1][/menu.key] [menu]🔍 Discover MQTT Broker[/menu]")
-        self.console.print("[menu.key][2][/menu.key] [menu]📡 Scan Shelly Devices[/menu]")
-        self.console.print("[menu.key][3][/menu.key] [menu]⚡ Provision Devices[/menu]")
-        self.console.print("[menu.key][4][/menu.key] [menu]✅ Verify Connections[/menu]")
-        self.console.print("[menu.key][Q][/menu.key] [menu]🚪 Quit[/menu]")
+        self.console.print("[menu.key][1][/menu.key] [menu]Discover Server IP[/menu]")
+        self.console.print("[menu.key][2][/menu.key] [menu]Scan Devices[/menu]")
+        self.console.print("[menu.key][3][/menu.key] [menu]Provision Devices[/menu]")
+        self.console.print("[menu.key][4][/menu.key] [menu]Verify Connections[/menu]")
+        self.console.print("[menu.key][Q][/menu.key] [menu]Quit[/menu]")
         self.console.print()
         print_divider()
         
@@ -91,7 +91,7 @@ class RCCConsole:
         print_section("Provision Options")
         self.console.print()
         self.console.print("[menu.key][1][/menu.key] [menu]Single Device[/menu]")
-        self.console.print("[menu.key][2][/menu.key] [menu]Batch (All Devices)[/menu]")
+        self.console.print("[menu.key][2][/menu.key] [menu]All Devices[/menu]")
         self.console.print("[menu.key][B][/menu.key] [menu]← Back[/menu]")
         self.console.print()
         
@@ -201,7 +201,7 @@ class RCCConsole:
     def show_device_table(self, devices: List[dict]) -> None:
         """Display a table of discovered devices"""
         table = Table(
-            title="[primary]Discovered Shelly Devices[/primary]",
+            title="[primary]Discovered Devices[/primary]",
             border_style="secondary",
             header_style="table.header",
         )
