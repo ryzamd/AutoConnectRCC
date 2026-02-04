@@ -136,19 +136,15 @@ class BrokerDiscovery:
             zc = Zeroconf()
             listener = MQTTListener()
             
-            # Search for MQTT service
             browser = ServiceBrowser(zc, "_mqtt._tcp.local.", listener)
             
-            # Wait up to 5 seconds for discovery
             listener.event.wait(timeout=5.0)
             
             zc.close()
             
             if listener.brokers:
                 return listener.brokers[0]
-            
         except ImportError:
-            # Zeroconf not installed
             pass
         except Exception:
             pass

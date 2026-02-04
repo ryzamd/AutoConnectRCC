@@ -196,7 +196,7 @@ class Provisioner:
             self._update_step("Getting device info...", "success")
             device.steps_completed.append("get_info")
             
-            self._update_step("Configuring MQTT...", "progress")
+            self._update_step("Configuring Server...", "progress")
             device.state = ProvisionState.CONFIG_MQTT.value
             
             retry_operation(
@@ -209,10 +209,10 @@ class Provisioner:
                 ),
                 max_retries=self.config.options.max_retries,
                 delay_base=self.config.options.retry_delay_base,
-                on_retry=lambda n, e: self._update_step(f"Configuring MQTT... (retry {n})", "retry")
+                on_retry=lambda n, e: self._update_step(f"Configuring Server... (retry {n})", "retry")
             )
             
-            self._update_step("Configuring MQTT...", "success")
+            self._update_step("Configuring Server...", "success")
             device.steps_completed.append("config_mqtt")
             
             self._update_step("Configuring WiFi...", "progress")
@@ -258,7 +258,7 @@ class Provisioner:
             
             try:
                 api.reboot()
-                self._update_step("Reboot command sent successfully", "success")
+                self._update_step("Reboot successfully", "success")
             except Exception as e:
                 if "Timeout" in str(e) or "Connection aborted" in str(e):
                     self._update_step("Rebooting...", "success")
@@ -267,8 +267,40 @@ class Provisioner:
             
             device.steps_completed.append("reboot")
             
-            # Step 8: Wait a moment for device to start reboot
+            self._update_step("Waiting for device to restart...", "progress")
+            
             time.sleep(10)
+            
+            self._update_step("Reconnecting to device to disable AP...", "progress")
+            try:
+                success = retry_operation(
+                    lambda: self.wifi_manager.connect_to_shelly(network.ssid),
+                    max_retries=5,
+                    delay_base=5.0,
+                    backoff="linear",
+                    on_retry=lambda n, e: self._update_step(f"Reconnecting... (retry {n})", "retry")
+                )
+                
+                if success:
+                     self._update_step("Reconnected successfully", "success")
+                     
+                     self._update_step("Disabling AP mode...", "progress")
+                     device.state = ProvisionState.DISABLE_AP.value
+                     
+                     try:
+                         api.disable_ap()
+                     except Exception as e:
+                         pass
+                         
+                     self._update_step("AP mode disabled", "success")
+                     device.steps_completed.append("disable_ap")
+                     
+                else:
+                     self._update_step("Could not reconnect to disable AP", "warning")
+                     
+            except Exception as e:
+                self._update_step(f"Error disabling AP: {str(e)}", "warning")
+
             
             device.state = ProvisionState.COMPLETED.value
             

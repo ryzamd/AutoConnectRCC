@@ -78,7 +78,6 @@ class SecureConfig:
         self._naming = DeviceNamingConfig()
         self._options = ProvisioningOptions()
         
-        # Register cleanup on exit
         atexit.register(self.clear_credentials)
         
         self._initialized = True

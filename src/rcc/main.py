@@ -5,7 +5,6 @@ import os
 import logging
 from datetime import datetime
 from typing import Optional, List
-
 from .config import get_config, SecureConfig
 from .discovery import discover_broker, verify_broker, DiscoveredBroker
 from .wifi_manager import get_wifi_manager, WiFiNetwork
@@ -15,7 +14,6 @@ from .mqtt_client import MQTTVerifier
 from .ui import RCCConsole, print_banner, print_section, print_divider
 
 
-# Configure logging (no credentials logged)
 def setup_logging() -> logging.Logger:
     log_dir = os.path.expanduser("~/.rcc/logs")
     os.makedirs(log_dir, exist_ok=True)
@@ -48,8 +46,6 @@ class RCCApp:
     
     def run(self) -> int:
         try:
-            self.console.show_banner()
-            
             if not self.config.is_ready():
                 self._setup_configuration()
             
@@ -96,10 +92,21 @@ class RCCApp:
     def _setup_configuration(self) -> None:
         self.console.clear()
         self.console.show_banner()
+        self.console.print("[primary]Target WiFi Configuration[/primary]")
+        print_divider()
         
-        print_section("Initial Setup")
-        self.console.print()
-        self.console.print("[text]Simplified setup - only WiFi configuration needed[/text]")
+        ssid = self.console.prompt_text(
+            "  WiFi Name",
+            default=""
+        )
+        self.config.wifi.ssid = ssid
+        
+        wifi_password = self.console.prompt_text(
+            "  WiFi Password",
+            password=False
+        )
+        self.config.wifi.password = wifi_password
+        
         self.console.print()
         
         port = self.console.prompt_int(
@@ -112,35 +119,39 @@ class RCCApp:
         
         self.console.print()
         
+        self.console.print_info(f"Connecting to {ssid}...")
+        try:
+            wifi_manager = get_wifi_manager()
+            if wifi_manager.connect(ssid, wifi_password):
+                self.console.print_success(f"Connected to {ssid}")
+            else:
+                self.console.print_error(f"Failed to connect to {ssid}")
+                if not self.console.prompt_confirm("Continue anyway?", default=False):
+                    return
+        except Exception as e:
+            self.console.print_error(f"Connection error: {str(e)}")
+            if not self.console.prompt_confirm("Continue anyway?", default=False):
+                return
+        
+        self.console.print()
+        
         self.console.print_info(f"Auto-discovering server...")
         
         broker = discover_broker("RCCServer")
         
         if broker:
-            self.console.print_success(f"Found server at {broker.ip} via {broker.method}")
+            self.console.print_success(f"Found server at {broker.ip}")
             self.config.broker.ip = broker.ip
-            self.logger.info(f"Auto-discovered broker: {broker.ip} ({broker.method})")
+            self.logger.info(f"Auto-discovered server: {broker.ip}")
         else:
             self.console.print_warning("Could not auto-discover server")
             self.console.print("[dim]Note: Discovery will retry when needed[/dim]")
         
-        self.console.print()
-        
-        self.console.print("[primary]Target WiFi Configuration[/primary]")
-        print_divider()
-        
-        ssid = self.console.prompt_text(
-            "  WiFi SSID",
-            default=""
-        )
-        self.config.wifi.ssid = ssid
-        
-        wifi_password = self.console.prompt_text(
-            "  WiFi Password",
-            password=False
-        )
         self.config.wifi.password = wifi_password
         
+        self.console.print()
+        
+        # Connection established before discovery
         self.console.print()
         
         self.logger.info(f"Broker: {self.config.broker.address}:{self.config.broker.port}")
@@ -165,9 +176,9 @@ class RCCApp:
         broker = discover_broker("RCCServer")
         
         if broker:
-            self.console.print_success(f"Found server at {broker.ip} via {broker.method}")
+            self.console.print_success(f"Found server at {broker.ip}")
             self.config.broker.ip = broker.ip
-            self.logger.info(f"Discovered broker: {broker.ip} ({broker.method})")
+            self.logger.info(f"Discovered Server: {broker.ip}")
             
             if verify_broker(broker.ip, self.config.broker.port):
                 self.console.print_success(f"Server is accessible on port {self.config.broker.port}")
@@ -239,9 +250,6 @@ class RCCApp:
         self.console.wait_for_key()
     
     def _provision_devices(self) -> None:
-        self.console.clear()
-        self.console.show_banner()
-        
         if not self.config.is_ready():
             self.console.print_error("Configuration incomplete. Please set up first.")
             self.console.wait_for_key()
@@ -259,6 +267,10 @@ class RCCApp:
         if choice == "B":
             return
         
+        # Clear screen for device scanning
+        self.console.clear()
+        self.console.show_banner()
+        print_section("Provision Devices")
         self.console.print()
         self.console.print_info("Scanning for devices...")
         
@@ -355,8 +367,6 @@ class RCCApp:
                 for r in results
             ]
             
-            self.console.show_summary(success_count, fail_count, summary_devices)
-            
             self.logger.info(f"Provisioning complete: {success_count} success, {fail_count} failed")
             
             if self._original_wifi:
@@ -396,16 +406,22 @@ class RCCApp:
                         self.console.print()
                         self.console.print_info("Updated Summary:")
                         
-                        updated_summary = [
-                            {
+                        updated_summary = []
+                        for r in results:
+                            ip_addr = r.final_ip or "DHCP"
+                            formatted_ip = ip_addr
+                            if ip_addr and ip_addr != "DHCP" and ip_addr.count('.') == 3:
+                                parts = ip_addr.split('.')
+                                formatted_ip = f"***.***.{parts[2]}.{parts[3]}"
+                            
+                            updated_summary.append({
                                 "mac": r.mac,
                                 "name": r.assigned_name,
-                                "ip": r.final_ip or "DHCP",
+                                "ip": formatted_ip,
                                 "status": "OK" if r.state == "completed" else "FAILED"
-                            }
-                            for r in results
-                        ]
-                        self.console.show_summary(success_count, fail_count, updated_summary)
+                            })
+                        
+                        self.console.show_summary(success_count, fail_count, updated_summary, ip_col_name="Address")
                                 
                     else:
                         self.console.print_error("Failed to reconnect")

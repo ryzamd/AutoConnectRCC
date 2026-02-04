@@ -36,6 +36,7 @@ pyinstaller ^
     --onefile ^
     --console ^
     --name RCC ^
+    --icon "src\rcc\assets\RCC-logo.ico" ^
     --add-data "src/rcc;rcc" ^
     --hidden-import=zeroconf ^
     --hidden-import=paho.mqtt.client ^

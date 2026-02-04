@@ -23,115 +23,104 @@ A cross-platform CLI tool for configuring Shelly Gen2 devices with MQTT broker s
 - **Secure**: All credentials stored in memory only, cleared on exit
 - **Cross-Platform**: Windows 10/11 and macOS 12+
 
-## Security
-
-⚠️ **No configuration files are created.** All credentials (WiFi password, MQTT password) are:
-- Entered via CLI with password masking
-- Stored in memory only during the session
-- Automatically cleared when the tool exits
-
-Log files do NOT contain any credentials.
-
-## Requirements
-
-### System Requirements
+## System Requirements
 
 | Platform | Version |
 |----------|---------|
 | Windows | 10 or 11 |
 | macOS | 12 (Monterey) or later |
-| Python | 3.11+ (bundled in executable) |
+| Python | 3.11+ (if building from source) |
 
-### Network Requirements
+## Installation & Building
 
-- PC and Raspberry Pi on the same LAN subnet
-- Raspberry Pi running Mosquitto MQTT broker
-- Shelly devices in AP mode (unconfigured)
-- WiFi adapter enabled on PC
+### Option 1: Build from Source (Windows)
 
-### Before You Start
+**Prerequisites:**
+- Python 3.11 or newer installed.
+- Git installed.
 
-1. **Raspberry Pi Setup**
-   - Mosquitto broker running
-   - Firewall allows port 1883
-   - MQTT user account created for devices
+**Build Steps:**
+1.  **Clone the repository:**
+    ```powershell
+    git clone <your-repo-url>
+    cd rcc
+    ```
+2.  **Add your Logo (Optional):**
+    - Place your `RCC-logo.png` in `src/rcc/assets/`.
+    - The build script will automatically convert it to an icon.
+3.  **Run the Build Script:**
+    Double-click `build_windows.bat` or run it from PowerShell:
+    ```powershell
+    .\build_windows.bat
+    ```
+    *This script will automatically:*
+    - Create a Python virtual environment (`venv`).
+    - Install all dependencies (including `Pillow` for icon processing).
+    - Generate `.ico` files from your logo.
+    - Compile the application into a single executable.
+4.  **Locate the Executable:**
+    The finished app is located at:
+    ```
+    dist\RCC.exe
+    ```
 
-2. **Shelly Devices**
-   - Powered on
-   - Not yet configured (broadcasting AP)
-   - Within WiFi range
+### Option 2: Build from Source (macOS)
 
-3. **PC/Mac**
-   - VPN disabled
-   - WiFi adapter enabled
-   - Run as Administrator (Windows) or with sudo (macOS)
+**Prerequisites:**
+- Python 3 installed (recommended via Homebrew: `brew install python`).
+- Git installed.
 
-## Installation
+**Build Steps:**
+1.  **Clone the repository:**
+    ```bash
+    git clone <your-repo-url>
+    cd rcc
+    ```
+2.  **Add your Logo (Optional):**
+    - Place your `RCC-logo.png` in `src/rcc/assets/`.
+3.  **Run the Build Script:**
+    Make the script executable and run it:
+    ```bash
+    chmod +x build_macos.sh
+    ./build_macos.sh
+    ```
+    *This script will automatically:*
+    - Create a virtual environment.
+    - Install dependencies.
+    - Generate `.icns` files from your logo.
+    - Compile the application.
+4.  **Locate the Executable:**
+    The finished app is located at:
+    ```
+    dist/RCC
+    ```
 
-### Option 1: Download Executable (Recommended)
+## Usage Instructions
 
-Download the pre-built executable for your platform:
-- `RCC.exe` for Windows
-- `RCC` for macOS
+### ⚠️ Admin Privileges Required
+**Crucial:** This tool requires Administrator (Windows) or Sudo (macOS) privileges to manage WiFi adapters and scan for networks.
 
-### Option 2: Build from Source
+### Running on Windows
+1.  Navigate to the `dist` folder.
+2.  Right-click `RCC.exe` and select **Run as administrator**.
+    - *Alternatively, open a Command Prompt as Admin and run `dist\RCC.exe` to see any potential startup errors.*
 
-**Windows:**
-```batch
-git clone <repo>
-cd rcc
-build_windows.bat
-```
+### Running on macOS
+1.  Open Terminal.
+2.  Navigate to the `dist` folder.
+3.  Run with sudo:
+    ```bash
+    sudo ./RCC
+    ```
 
-**macOS:**
-```bash
-git clone <repo>
-cd rcc
-chmod +x build_macos.sh
-./build_macos.sh
-```
+### First Run Configuration
+On the first run, the tool will ask for your environment details. These are saved for future use (except passwords).
 
-## Usage
+1.  **MQTT Broker**: Enter the IP of your Raspberry Pi (or press Enter to try auto-discovery).
+2.  **Credentials**: Enter the MQTT username/password and your Target WiFi SSID/Password.
+3.  **Device Naming**: Set a prefix (e.g., `LivingRoom-Shade`) for auto-naming devices.
 
-### Run the Tool
-
-**Windows:**
-```batch
-RCC.exe
-```
-
-**macOS:**
-```bash
-sudo ./RCC
-```
-
-> Note: Admin/sudo required for WiFi management
-
-### First Run - Configuration
-
-On first run, you'll be prompted for:
-
-```
-MQTT Broker Configuration:
-─────────────────────────
-  Broker hostname [raspi-RCC.local]:
-  Broker IP (or Enter to auto-discover):
-  Broker port [1883]:
-  MQTT username for devices: DeviceRCC
-  MQTT password for devices: ******** (hidden)
-
-Target WiFi Configuration:
-──────────────────────────
-  WiFi SSID: MyHomeNetwork
-  WiFi Password: ******** (hidden)
-
-Device Naming:
-──────────────
-  Device name prefix [RCC-Device]:
-  Start number [1]:
-```
-
-### Main Menu
+### Main Menu Guide
 
 ```
 [1] 🔍 Discover MQTT Broker    - Find Raspberry Pi on network
@@ -141,21 +130,8 @@ Device Naming:
 [Q] 🚪 Quit
 ```
 
-### Provisioning Workflow
-
-1. Tool connects to Shelly AP (e.g., `ShellyPlus1-A8032ABE54DC`)
-2. Gets device information
-3. Configures MQTT broker settings
-4. Configures WiFi credentials
-5. Disables Shelly AP and Cloud
-6. Renames device (hides Shelly branding)
-7. Reboots device
-
-After provisioning:
-- Shelly connects to your WiFi
-- Shelly connects to MQTT broker
-- Shelly AP is hidden (no more `ShellyPlus1-XXXX` network)
-- Device appears as `RCC-Device-001` in MQTT topics
+- **Scan**: Finds unconfigured Shelly devices broadcasting their own WiFi AP.
+- **Provision**: Connects to the Shelly, uploads your WiFi/MQTT settings, reboots the device, and verifies it joins your network.
 
 ## Project Structure
 
@@ -163,70 +139,31 @@ After provisioning:
 rcc/
 ├── src/
 │   └── rcc/
-│       ├── __init__.py
+│       ├── assets/           # Application Icons/Logos
 │       ├── main.py           # Entry point
-│       ├── config.py         # Secure config management
-│       ├── discovery.py      # Broker discovery
-│       ├── wifi_manager.py   # Cross-platform WiFi
-│       ├── shelly_api.py     # Shelly HTTP API
-│       ├── provisioner.py    # Main logic
-│       └── ui/
-│           ├── theme.py      # Color theme
-│           ├── console.py    # CLI interface
-│           └── ascii_art.py  # Banner
-├── requirements.txt
-├── pyproject.toml
-├── build_windows.bat
-├── build_macos.sh
-└── README.md
+│       ├── config.py         # Config management
+│       ├── wifi_manager.py   # WiFi logic
+│       └── ...
+├── tools/
+│   └── convert_icon.py       # Icon generation script
+├── dist/                     # Compiled executables (Output)
+├── build_windows.bat         # One-click build for Windows
+├── build_macos.sh            # One-click build for macOS
+├── requirements.txt          # Python dependencies
+└── RCC.spec                  # PyInstaller configuration
 ```
 
 ## Troubleshooting
 
+### Icon not showing updated?
+Windows caches icons aggressively. If you updated `RCC-logo.png` but `RCC.exe` shows the old icon:
+1.  Rename `RCC.exe` to something else (e.g., `RCC_v2.exe`).
+2.  Or copy it to a different folder.
+3.  Restart Windows to clear the cache.
+
 ### "No Shelly devices found"
+- Ensure the device is in **AP Mode** (hold the reset button for 10s if it's already connected to WiFi).
+- Ensure your PC has a working WiFi adapter.
 
-- Ensure Shelly is powered on
-- Ensure Shelly is in AP mode (factory reset if needed)
-- Move closer to the device
-- Check WiFi adapter is enabled
-
-### "Cannot connect to broker"
-
-- Verify Raspberry Pi IP address
-- Check Mosquitto is running: `sudo systemctl status mosquitto`
-- Check firewall: `sudo ufw status`
-- Test connection: `mosquitto_pub -h <IP> -t test -m hello -u <user> -P <pass>`
-
-### "WiFi connection failed"
-
-- Run tool as Administrator/sudo
-- Disable VPN
-- Check WiFi adapter is working
-
-### macOS: "Operation not permitted"
-
-Run with sudo:
-```bash
-sudo ./RCC
-```
-
-## Color Theme
-
-| Element | Color | Hex |
-|---------|-------|-----|
-| Primary | 🟧 | `#da7757` |
-| Secondary | 🟧 | `#d47151` |
-| Text | 🟩 | `#96c077` |
-| Notice | 🟥 | `#cf6e6e` |
-| Info | 🔵 | `#5f9ea0` |
-| Success | 🟩 | `#98c379` |
-| Input | 🟨 | `#e5c07b` |
-| Dim | ⬜ | `#6b7280` |
-
-## License
-
+### License
 Proprietary - All rights reserved
-
-## Support
-
-For issues and feature requests, contact the development team.

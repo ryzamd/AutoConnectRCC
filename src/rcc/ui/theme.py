@@ -1,3 +1,6 @@
+import platform
+import ctypes
+import os
 from rich.console import Console
 from rich.theme import Theme
 
@@ -64,45 +67,55 @@ RCC_THEME = Theme({
 # Global console instance
 _console: Console | None = None
 
+def _enable_windows_virtual_terminal():
+    if platform.system() == "Windows":
+        try:
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            if handle:
+                mode = ctypes.c_ulong()
+                if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                    mode.value |= 0x0004
+                    kernel32.SetConsoleMode(handle, mode)
+        except Exception:
+            pass
 
 def get_console() -> Console:
-    """Get the global console instance with RCC theme"""
     global _console
     if _console is None:
-        _console = Console(theme=RCC_THEME)
+        _enable_windows_virtual_terminal()
+        
+        _console = Console(
+            theme=RCC_THEME,
+            force_terminal=True,
+            color_system="truecolor" if platform.system() == "Windows" else "auto"
+        )
     return _console
 
 
 def print_styled(text: str, style: str = "text") -> None:
-    """Print text with specified style"""
     get_console().print(text, style=style)
 
 
 def print_primary(text: str) -> None:
-    """Print text in primary color"""
     print_styled(text, "primary")
 
 
 def print_success(text: str) -> None:
-    """Print success message"""
     print_styled(f"✓ {text}", "success")
 
 
 def print_error(text: str) -> None:
-    """Print error message"""
     print_styled(f"✗ {text}", "notice")
 
 
 def print_info(text: str) -> None:
-    """Print info message"""
     print_styled(f"ℹ {text}", "info")
 
 
 def print_warning(text: str) -> None:
-    """Print warning message"""
     print_styled(f"⚠ {text}", "notice")
 
 
 def print_dim(text: str) -> None:
-    """Print dimmed/hint text"""
     print_styled(text, "dim")
