@@ -33,6 +33,8 @@ class MQTTVerifier:
             client.subscribe("+/online")
             client.subscribe("+/announce")
             client.subscribe("+/events/rpc")
+            client.subscribe("+/status/wifi")
+            client.subscribe("rcc-verifier/rpc")
             client.publish("shellies/command", "announce")
         else:
             logger.error(f"Failed to connect to MQTT broker: {rc}")
@@ -47,7 +49,24 @@ class MQTTVerifier:
             if topic.endswith("/announce"):
                 try:
                     data = json.loads(payload)
-                    self._add_device(data)
+                    device_name = data.get("name") or data.get("id")
+                    normalized = {
+                        "id": device_name,
+                        "original_id": data.get("id"),
+                        "mac": data.get("mac", "Unknown"),
+                        "model": data.get("model") or data.get("app", "Unknown"),
+                        "ip": data.get("ip", "Unknown"),
+                        "gen": data.get("gen", 1)
+                    }
+                    self._add_device(normalized)
+                    
+                    if data.get("gen", 1) >= 2 and device_name:
+                        rpc_request = json.dumps({
+                            "id": int(time.time()),
+                            "src": "rcc-verifier",
+                            "method": "WiFi.GetStatus"
+                        })
+                        client.publish(f"{device_name}/rpc", rpc_request)
                 except json.JSONDecodeError:
                     pass
             
@@ -82,6 +101,51 @@ class MQTTVerifier:
                         "mac": mac,
                         "status": "online (rpc)"
                     })
+                except json.JSONDecodeError:
+                    pass
+            
+            elif topic.endswith("/status/wifi"):
+                prefix = topic.split("/")[0]
+                try:
+                    data = json.loads(payload)
+                    ip = data.get("sta_ip")
+                    if ip:
+                        for device in self.found_devices:
+                            if device.get("id") == prefix:
+                                device["ip"] = ip
+                                break
+                except json.JSONDecodeError:
+                    pass
+            
+            elif topic == "rcc-verifier/rpc":
+                try:
+                    data = json.loads(payload)
+                    result = data.get("result", {})
+                    ip = result.get("sta_ip")
+                    src = data.get("src", "")
+                    
+                    logger.debug(f"RPC response: src={src}, ip={ip}, devices={len(self.found_devices)}")
+                    
+                    if ip and src:
+                        src_mac = ""
+                        if "-" in src:
+                            parts = src.split("-")
+                            if len(parts) >= 2:
+                                possible_mac = parts[-1].upper()
+                                if len(possible_mac) == 12:
+                                    src_mac = possible_mac
+                        
+                        logger.debug(f"Extracted MAC from src: {src_mac}")
+                        
+                        for device in self.found_devices:
+                            device_mac = device.get("mac", "").upper()
+                            original_id = device.get("original_id", "")
+                            device_id = device.get("id", "")
+                            
+                            if (src_mac and device_mac == src_mac) or original_id == src or device_id == src:
+                                device["ip"] = ip
+                                logger.info(f"Updated IP {ip} for device {device_id} (MAC match: {device_mac})")
+                                break
                 except json.JSONDecodeError:
                     pass
 

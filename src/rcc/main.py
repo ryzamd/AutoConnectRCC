@@ -8,9 +8,8 @@ from typing import Optional, List
 from .config import get_config, SecureConfig
 from .discovery import discover_broker, verify_broker, DiscoveredBroker
 from .wifi_manager import get_wifi_manager, WiFiNetwork
-from .shelly_api import check_shelly_ap_mode
+from .shelly_api import check_shelly_ap_mode, ShellyAPI
 from .provisioner import create_provisioner, ProvisionedDevice
-from .mqtt_client import MQTTVerifier
 from .ui import RCCConsole, print_banner, print_section, print_divider
 
 
@@ -61,7 +60,7 @@ class RCCApp:
                 elif choice == "3":
                     self._provision_devices()
                 elif choice == "4":
-                    self._verify_connections()
+                    self._reset_devices()
                 elif choice == "Q":
                     break
             
@@ -149,9 +148,6 @@ class RCCApp:
         
         self.config.wifi.password = wifi_password
         
-        self.console.print()
-        
-        # Connection established before discovery
         self.console.print()
         
         self.logger.info(f"Broker: {self.config.broker.address}:{self.config.broker.port}")
@@ -267,7 +263,6 @@ class RCCApp:
         if choice == "B":
             return
         
-        # Clear screen for device scanning
         self.console.clear()
         self.console.show_banner()
         print_section("Provision Devices")
@@ -369,62 +364,53 @@ class RCCApp:
             
             self.logger.info(f"Provisioning complete: {success_count} success, {fail_count} failed")
             
+            #self.console.clear()
+            #self.console.show_banner()
+            print_section("Provisioning Complete")
+            
             if self._original_wifi:
                 self.console.print()
-                self.console.print_info(f"Original network: {self._original_wifi}")
-                if self.console.prompt_confirm(f"Reconnect to {self._original_wifi}?"):
-                    wifi_password = self.console.prompt_text(
-                        f"Password for {self._original_wifi}",
-                        password=False
-                    )
-                    if wifi_manager.connect(self._original_wifi, wifi_password):
-                        self.console.print_success("Reconnected to original network")
-                        
-                        self.console.print()
-                        self.console.print_info("Scanning for device IPs on local network...")
-                        
-                        from .discovery import resolve_hostname
-                        import time
-                        
-                        for device in results:
-                            if device.state == "completed":
-                                self.console.print(f"  Looking for IP of {device.assigned_name}...")
-                                found_ip = None
-                                for i in range(5):
-                                    found_ip = resolve_hostname(device.assigned_name, device.mac)
-                                    if found_ip:
-                                        break
-                                    time.sleep(2)
-                                
+                self.console.print_info(f"Reconnecting to {self._original_wifi}...")
+                
+                wifi_password = self.config.wifi.password
+                if wifi_manager.connect(self._original_wifi, wifi_password):
+                    self.console.print_success("Reconnected to original network")
+                    
+                    from .discovery import resolve_hostname
+                    import time
+                    
+                    for device in results:
+                        if device.state == "completed":
+                            found_ip = None
+                            for i in range(5):
+                                found_ip = resolve_hostname(device.assigned_name, device.mac)
                                 if found_ip:
-                                    device.final_ip = found_ip
-                                    self.console.print_success(f"Found IP: {found_ip}")
-                                    self.logger.info(f"Resolved IP for {device.assigned_name}: {found_ip}")
-                                else:
-                                    self.console.print_warning(f"Could not resolve IP for {device.assigned_name}")
-                        
-                        self.console.print()
-                        self.console.print_info("Updated Summary:")
-                        
-                        updated_summary = []
-                        for r in results:
-                            ip_addr = r.final_ip or "DHCP"
-                            formatted_ip = ip_addr
-                            if ip_addr and ip_addr != "DHCP" and ip_addr.count('.') == 3:
-                                parts = ip_addr.split('.')
-                                formatted_ip = f"***.***.{parts[2]}.{parts[3]}"
+                                    break
+                                time.sleep(2)
                             
-                            updated_summary.append({
-                                "mac": r.mac,
-                                "name": r.assigned_name,
-                                "ip": formatted_ip,
-                                "status": "OK" if r.state == "completed" else "FAILED"
-                            })
-                        
-                        self.console.show_summary(success_count, fail_count, updated_summary, ip_col_name="Address")
-                                
-                    else:
-                        self.console.print_error("Failed to reconnect")
+                            if found_ip:
+                                device.final_ip = found_ip
+                                self.logger.info(f"Resolved IP for {device.assigned_name}: {found_ip}")
+                else:
+                    self.console.print_error("Failed to reconnect to original network")
+            
+            self.console.print()
+            updated_summary = []
+            for r in results:
+                ip_addr = r.final_ip or "DHCP"
+                formatted_ip = ip_addr
+                if ip_addr and ip_addr != "DHCP" and ip_addr.count('.') == 3:
+                    parts = ip_addr.split('.')
+                    formatted_ip = f"***.***.{parts[2]}.{parts[3]}"
+                
+                updated_summary.append({
+                    "mac": r.mac,
+                    "name": r.assigned_name,
+                    "ip": formatted_ip,
+                    "status": "OK" if r.state == "completed" else "FAILED"
+                })
+            
+            self.console.show_summary(success_count, fail_count, updated_summary, ip_col_name="Address")
             
         except NotImplementedError as e:
             self.console.print_error(str(e))
@@ -434,27 +420,25 @@ class RCCApp:
         
         self.console.wait_for_key()
     
-    def _verify_connections(self) -> None:
-        self.console.clear()
-        self.console.show_banner()
-        print_section("Verify Connections")
+    def _reset_devices(self) -> None:
+        choice = self.console.show_reset_menu()
         
-        self.console.print()
-        
-        if not self.config.broker.ip:
-            self.console.print_warning("Server IP not configured")
-            self.console.wait_for_key()
+        if choice == "B":
             return
         
-        self.console.print_info(
-            f"Checking server at {self.config.broker.address}:{self.config.broker.port}..."
-        )
+        self.console.clear()
+        self.console.show_banner()
+        print_section("Reset Device")
+        self.console.print()
+        self.console.print_info("Scanning for online devices...")
         
-        if verify_broker(self.config.broker.address, self.config.broker.port):
-            self.console.print_success("Server is accessible")
+        try:
+            from .mqtt_client import MQTTVerifier
             
-            self.console.print()
-            self.console.print_info("Listening for MQTT announcements (30s timeout)...")
+            if not self.config.broker.ip:
+                self.console.print_warning("Server IP not configured")
+                self.console.wait_for_key()
+                return
             
             verifier = MQTTVerifier(
                 self.config.broker.ip,
@@ -463,28 +447,98 @@ class RCCApp:
                 self.config.broker.password
             )
             
-            found_devices = verifier.verify(timeout=30)
+            found_devices = verifier.verify(timeout=10)
             
-            if found_devices:
-                found_devices.sort(key=lambda x: x.get("id", ""))
-                
-                self.console.print_success(f"Found {len(found_devices)} devices broadcasting on MQTT:")
-                self.console.print()
-                
-                self.console.print("[bold]ID[/bold] | [bold]MAC[/bold] | [bold]IP[/bold] | [bold]Model[/bold]")
-                self.console.print("[dim]" + "-" * 50 + "[/dim]")
-                
-                for device in found_devices:
-                    dev_id = device.get("id", "Unknown")
-                    mac = device.get("mac", "Unknown")
-                    ip = device.get("ip", "Unknown")
-                    model = device.get("model", "Unknown")
-                    self.console.print(f"{dev_id:<20} | {mac:<12} | {ip:<15} | {model}")
-            else:
-                self.console.print_warning("No devices detected broadcasting on MQTT yet.")
+            if not found_devices:
+                self.console.print_warning("No online devices found")
                 self.console.print("[dim]Note: Devices might take a moment to connect and announce.[/dim]")
-        else:
-            self.console.print_error("Server is not accessible")
+                self.console.wait_for_key()
+                return
+            
+            found_devices = [d for d in found_devices if d.get("id", "").startswith("RCC-Device")]
+            
+            if not found_devices:
+                self.console.print_warning("No RCC provisioned devices found")
+                self.console.print("[dim]Only devices with 'RCC-Device' prefix are shown.[/dim]")
+                self.console.wait_for_key()
+                return
+            
+            found_devices.sort(key=lambda x: x.get("id", ""))
+            self.console.print_success(f"Found {len(found_devices)} RCC device(s)")
+            
+            items = []
+            for device in found_devices:
+                dev_id = device.get("id", "Unknown")
+                items.append((dev_id, ""))
+            
+            if choice == "1":
+                selected = self.console.prompt_selection(
+                    items,
+                    prompt="Select device to reset",
+                    allow_all=False
+                )
+            else:
+                selected = self.console.prompt_selection(
+                    items,
+                    prompt="Select devices (comma-separated) or [A]ll",
+                    allow_all=True
+                )
+            
+            if not selected:
+                return
+            
+            selected_devices = [found_devices[i] for i in selected]
+            
+            self.console.print()
+            if len(selected_devices) == 1:
+                warning_msg = "This action will reset the device you selected and disconnect it from the Server. You will need to provision it again."
+            else:
+                warning_msg = f"This action will reset {len(selected_devices)} devices and disconnect them from the Server. You will need to provision them again."
+            
+            self.console.print_warning(warning_msg)
+            
+            if not self.console.prompt_confirm("Are you sure?", default=False):
+                self.console.print_info("Reset cancelled")
+                self.console.wait_for_key()
+                return
+            
+            self.console.print()
+            success_count = 0
+            fail_count = 0
+            
+            for device in selected_devices:
+                dev_id = device.get("id", "Unknown")
+                ip = device.get("ip", None)
+                
+                if not ip:
+                    self.console.print_error(f"{dev_id}: No IP address")
+                    fail_count += 1
+                    continue
+                
+                self.console.print_info(f"Resetting {dev_id}...")
+                
+                try:
+                    api = ShellyAPI(ip, timeout=10.0)
+                    api.factory_reset()
+                    self.console.print_success(f"{dev_id}: Reset command sent")
+                    success_count += 1
+                except Exception as e:
+                    if "Connection" in str(e) or "Timeout" in str(e):
+                        self.console.print_success(f"{dev_id}: Reset command sent (device disconnected)")
+                        success_count += 1
+                    else:
+                        self.console.print_error(f"{dev_id}: Failed - {str(e)}")
+                        fail_count += 1
+            
+            self.console.print()
+            if success_count > 0:
+                self.console.print_success(f"Reset success devices: {success_count}")
+            if fail_count > 0:
+                self.console.print_error(f"Reset failed devices: {fail_count}")
+            
+        except Exception as e:
+            self.console.print_error(f"Reset failed: {str(e)}")
+            self.logger.exception("Reset failed")
         
         self.console.wait_for_key()
 

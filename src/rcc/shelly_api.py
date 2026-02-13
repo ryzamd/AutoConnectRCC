@@ -207,6 +207,13 @@ class ShellyAPI:
     def reboot(self) -> None:
         self._rpc_call("Shelly.Reboot")
     
+    def factory_reset(self) -> bool:
+        try:
+            self._rpc_call("Shelly.FactoryReset")
+            return True
+        except ShellyAPIError:
+            return False
+    
     # ═══════════════════════════════════════════════════════════════
     # Switch Control (for testing)
     # ═══════════════════════════════════════════════════════════════

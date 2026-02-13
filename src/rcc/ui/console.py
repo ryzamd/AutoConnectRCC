@@ -1,7 +1,6 @@
 from getpass import getpass
 from typing import Optional, List, Tuple
 import sys
-
 from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
@@ -9,13 +8,11 @@ from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
 from rich.live import Live
 from rich.layout import Layout
-
 from .theme import get_console, RCC_THEME, COLORS
 from .ascii_art import print_banner, print_divider, print_section, DIVIDER
 
 
 class RCCConsole:
-    
     def __init__(self):
         self.console = get_console()
     
@@ -58,7 +55,7 @@ class RCCConsole:
         self.console.print("[menu.key][1][/menu.key] [menu]Discover Server IP[/menu]")
         self.console.print("[menu.key][2][/menu.key] [menu]Scan Devices[/menu]")
         self.console.print("[menu.key][3][/menu.key] [menu]Provision Devices[/menu]")
-        self.console.print("[menu.key][4][/menu.key] [menu]Verify Connections[/menu]")
+        self.console.print("[menu.key][4][/menu.key] [menu]Reset Device[/menu]")
         self.console.print("[menu.key][Q][/menu.key] [menu]Quit[/menu]")
         self.console.print()
         print_divider()
@@ -84,6 +81,23 @@ class RCCConsole:
         self.console.print()
         self.console.print("[menu.key][1][/menu.key] [menu]Single Device[/menu]")
         self.console.print("[menu.key][2][/menu.key] [menu]All Devices[/menu]")
+        self.console.print("[menu.key][B][/menu.key] [menu]← Back[/menu]")
+        self.console.print()
+        
+        choice = Prompt.ask(
+            "[input]Select option[/input]",
+            choices=["1", "2", "b", "B"],
+            default="1"
+        )
+        return choice.upper()
+    
+    def show_reset_menu(self) -> str:
+        self.clear()
+        self.show_banner()
+        print_section("Reset Device")
+        self.console.print()
+        self.console.print("[menu.key][1][/menu.key] [menu]Single Device[/menu]")
+        self.console.print("[menu.key][2][/menu.key] [menu]Multiple Devices[/menu]")
         self.console.print("[menu.key][B][/menu.key] [menu]← Back[/menu]")
         self.console.print()
         

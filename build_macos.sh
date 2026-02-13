@@ -40,9 +40,18 @@ pyinstaller \
     --icon "src/rcc/assets/RCC-logo.icns" \
     --add-data "src/rcc:rcc" \
     --hidden-import=zeroconf \
+    --hidden-import=paho.mqtt.client \
     --hidden-import=requests \
-    --hidden-import=rich \
-    src/rcc/main.py
+    --hidden-import=rich.console \
+    --hidden-import=rich.table \
+    --hidden-import=rich.progress \
+    --hidden-import=rich.prompt \
+    --hidden-import=rich.panel \
+    --hidden-import=rich.live \
+    --hidden-import=rich.layout \
+    --hidden-import=rich.theme \
+    --collect-all=rich \
+    run_rcc.py
 
 echo ""
 echo "=========================================="
