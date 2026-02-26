@@ -56,6 +56,8 @@ class RCCConsole:
         self.console.print("[menu.key][2][/menu.key] [menu]Scan Devices[/menu]")
         self.console.print("[menu.key][3][/menu.key] [menu]Provision Devices[/menu]")
         self.console.print("[menu.key][4][/menu.key] [menu]Reset Device[/menu]")
+        self.console.print("[menu.key][5][/menu.key] [menu]Activate License[/menu]")
+        self.console.print("[menu.key][6][/menu.key] [menu]Migrate License (Transfer Token)[/menu]")
         self.console.print("[menu.key][Q][/menu.key] [menu]Quit[/menu]")
         self.console.print()
         print_divider()
@@ -69,7 +71,7 @@ class RCCConsole:
         
         choice = Prompt.ask(
             "[input]Select option[/input]",
-            choices=["1", "2", "3", "4", "q", "Q"],
+            choices=["1", "2", "3", "4", "5", "6", "q", "Q"],
             default="1"
         )
         return choice.upper()

@@ -11,6 +11,8 @@ from .wifi_manager import get_wifi_manager, WiFiNetwork
 from .shelly_api import check_shelly_ap_mode, ShellyAPI
 from .provisioner import create_provisioner, ProvisionedDevice
 from .ui import RCCConsole, print_banner, print_section, print_divider
+from .license_client import LicenseAdminClient
+from .license_decrypt import decrypt_license, DecryptionError
 
 
 def setup_logging() -> logging.Logger:
@@ -61,6 +63,10 @@ class RCCApp:
                     self._provision_devices()
                 elif choice == "4":
                     self._reset_devices()
+                elif choice == "5":
+                    self._activate_license()
+                elif choice == "6":
+                    self._migrate_license()
                 elif choice == "Q":
                     break
             
@@ -106,8 +112,6 @@ class RCCApp:
         )
         self.config.wifi.password = wifi_password
         
-        self.console.print()
-        
         port = self.console.prompt_int(
             "  Server port",
             default=self.config.broker.port,
@@ -116,7 +120,17 @@ class RCCApp:
         )
         self.config.broker.port = port
         
-        self.console.print()
+        device_pw = self.console.prompt_text(
+            "  MQTT Device Password (DeviceRCC)",
+            password=False
+        )
+        self.config.broker.password = device_pw
+        
+        admin_pw = self.console.prompt_text(
+            "  MQTT Admin Password (ToolRCC)",
+            password=False
+        )
+        self.config.broker.admin_password = admin_pw
         
         self.console.print_info(f"Connecting to {ssid}...")
         try:
@@ -132,8 +146,6 @@ class RCCApp:
             if not self.console.prompt_confirm("Continue anyway?", default=False):
                 return
         
-        self.console.print()
-        
         self.console.print_info(f"Auto-discovering server...")
         
         broker = discover_broker("RCCServer")
@@ -147,8 +159,6 @@ class RCCApp:
             self.console.print("[dim]Note: Discovery will retry when needed[/dim]")
         
         self.config.wifi.password = wifi_password
-        
-        self.console.print()
         
         self.logger.info(f"Broker: {self.config.broker.address}:{self.config.broker.port}")
         self.logger.info(f"MQTT User: {self.config.broker.username} (password: ****)")
@@ -166,7 +176,6 @@ class RCCApp:
         self.console.show_banner()
         print_section("Discover Server")
         
-        self.console.print()
         self.console.print_info(f"Searching for server: ...")
         
         broker = discover_broker("RCCServer")
@@ -540,6 +549,173 @@ class RCCApp:
             self.console.print_error(f"Reset failed: {str(e)}")
             self.logger.exception("Reset failed")
         
+        self.console.wait_for_key()
+
+    # ═══════════════════════════════════════════════════════════════
+    # License Management
+    # ═══════════════════════════════════════════════════════════════
+
+    def _activate_license(self) -> None:
+        """Activate license on the Pi by sending a license key."""
+        self.console.clear()
+        self.console.show_banner()
+        print_section("Activate License")
+        self.console.print()
+
+        if not self.config.broker.ip:
+            self.console.print_error("Server IP not configured. Run Discover first.")
+            self.console.wait_for_key()
+            return
+
+        license_key = self.console.prompt_text("  License Key")
+        if not license_key:
+            self.console.print_warning("No license key entered")
+            self.console.wait_for_key()
+            return
+
+        self.console.print()
+        self.console.print_info("Sending activation request to Pi...")
+
+        client = LicenseAdminClient(
+            host=self.config.broker.address,
+            port=self.config.broker.port,
+            username=self.config.broker.admin_username,
+            password=self.config.broker.admin_password,
+        )
+
+        result = client.activate(
+            license_key=license_key,
+            timeout=self.config.license.activation_timeout,
+        )
+
+        self.console.print()
+        if result.get("success"):
+            tier = result.get("tier", "unknown")
+            max_dev = result.get("max_devices", "?")
+            self.console.print_success(f"License activated!")
+            self.console.print(f"  [text]Tier:[/text]        [primary]{tier}[/primary]")
+            self.console.print(f"  [text]Max devices:[/text] [primary]{max_dev}[/primary]")
+            self.logger.info("License activated: tier=%s, max_devices=%s", tier, max_dev)
+        else:
+            error = result.get("error", "Unknown error")
+            self.console.print_error(f"Activation failed: {error}")
+            self.logger.error("License activation failed: %s", error)
+
+        self.console.wait_for_key()
+
+    def _migrate_license(self) -> None:
+        """Migrate license to new hardware using Transfer Token."""
+        self.console.clear()
+        self.console.show_banner()
+        print_section("Migrate License (Transfer Token)")
+        self.console.print()
+
+        if not self.config.broker.ip:
+            self.console.print_error("Server IP not configured. Run Discover first.")
+            self.console.wait_for_key()
+            return
+
+        # Step 1: Prompt for license file path
+        self.console.print("[dim]Provide the license.dat file and the activation password.[/dim]")
+        self.console.print("[dim]The transfer token will be extracted locally.[/dim]")
+        self.console.print()
+
+        license_path = self.console.prompt_text(
+            "  License file path",
+            default=self.config.license.license_path,
+        )
+        if not license_path:
+            self.console.print_warning("No path entered")
+            self.console.wait_for_key()
+            return
+
+        # Step 2: Prompt for activation password
+        password = self.console.prompt_text("  Activation Password", password=True)
+        if not password:
+            self.console.print_warning("No password entered")
+            self.console.wait_for_key()
+            return
+
+        # Step 3: Decrypt locally
+        self.console.print()
+        self.console.print_info("Decrypting license file...")
+
+        try:
+            data = decrypt_license(license_path, password)
+        except FileNotFoundError:
+            self.console.print_error(f"File not found: {license_path}")
+            self.console.wait_for_key()
+            return
+        except DecryptionError as e:
+            self.console.print_error(f"Decryption failed: {e}")
+            self.console.wait_for_key()
+            return
+        except ValueError as e:
+            self.console.print_error(f"Invalid file format: {e}")
+            self.console.wait_for_key()
+            return
+
+        transfer_token = data.get("transfer_token")
+        remaining = data.get("transfer_count_remaining", 0)
+        tier = data.get("tier", "unknown")
+        hwid = data.get("hwid", "unknown")
+
+        self.console.print_success("License decrypted")
+        self.console.print(f"  [text]Tier:[/text]             [primary]{tier}[/primary]")
+        self.console.print(f"  [text]Current HWID:[/text]     [dim]{hwid[:24]}...[/dim]")
+        self.console.print(f"  [text]Transfers left:[/text]   [primary]{remaining}[/primary]")
+
+        if not transfer_token:
+            self.console.print_error("No transfer token found in license")
+            self.console.wait_for_key()
+            return
+
+        if remaining <= 0:
+            self.console.print_error("No transfers remaining on this license")
+            self.console.wait_for_key()
+            return
+
+        # Step 4: Confirm
+        self.console.print()
+        self.console.print_warning(
+            "This will transfer the license to the current Pi's hardware. "
+            f"You have {remaining} transfer(s) remaining."
+        )
+
+        if not self.console.prompt_confirm("Proceed with migration?", default=False):
+            self.console.print_info("Migration cancelled")
+            self.console.wait_for_key()
+            return
+
+        # Step 5: Send migration request
+        self.console.print()
+        self.console.print_info("Sending migration request to Pi...")
+
+        client = LicenseAdminClient(
+            host=self.config.broker.address,
+            port=self.config.broker.port,
+            username=self.config.broker.admin_username,
+            password=self.config.broker.admin_password,
+        )
+
+        result = client.migrate(
+            transfer_token=transfer_token,
+            activation_password=password,
+            timeout=self.config.license.migration_timeout,
+        )
+
+        self.console.print()
+        if result.get("success"):
+            self.console.print_success("License migrated successfully!")
+            msg = result.get("message", "")
+            if msg:
+                self.console.print(f"  [dim]{msg}[/dim]")
+            self.logger.info("License migrated: %s", result)
+        else:
+            error = result.get("error", "Unknown error")
+            self.console.print_error(f"Migration failed: {error}")
+            self.logger.error("License migration failed: %s", error)
+
         self.console.wait_for_key()
 
 

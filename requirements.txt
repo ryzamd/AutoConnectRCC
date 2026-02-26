@@ -9,6 +9,9 @@ requests>=2.31.0
 zeroconf>=0.131.0
 paho-mqtt>=1.6.1
 
+# Crypto (AES-256-GCM license decryption)
+cryptography>=41.0.0
+
 # WiFi Management (cross-platform)
 pywifi>=1.1.12; sys_platform == 'win32'
 # macOS uses native commands via subprocess

@@ -10,7 +10,9 @@ class BrokerConfig:
     ip: Optional[str] = None
     port: int = 1883
     username: str = "DeviceRCC"
-    password: str = "DeviceRCC@#!"
+    password: str = ""
+    admin_username: str = "ToolRCC"
+    admin_password: str = ""
     
     @property
     def address(self) -> str:
@@ -21,7 +23,7 @@ class BrokerConfig:
         return f"{self.address}:{self.port}"
     
     def is_configured(self) -> bool:
-        return bool(self.address and self.username and self.password)
+        return bool(self.address and self.username and self.password and self.admin_password)
 
 
 @dataclass
@@ -53,11 +55,18 @@ class ProvisioningOptions:
     disable_shelly_ap: bool = True
     disable_shelly_cloud: bool = True
     verify_after_provision: bool = True
-    
+
     max_retries: int = 3
     retry_delay_base: float = 2.0
     api_timeout: float = 10.0
     wifi_connect_timeout: float = 30.0
+
+
+@dataclass
+class LicenseConfig:
+    license_path: str = "./license.dat"
+    activation_timeout: float = 15.0
+    migration_timeout: float = 15.0
 
 
 class SecureConfig:
@@ -77,6 +86,7 @@ class SecureConfig:
         self._wifi = WiFiConfig()
         self._naming = DeviceNamingConfig()
         self._options = ProvisioningOptions()
+        self._license = LicenseConfig()
         
         atexit.register(self.clear_credentials)
         
@@ -97,13 +107,18 @@ class SecureConfig:
     @property
     def options(self) -> ProvisioningOptions:
         return self._options
-    
+
+    @property
+    def license(self) -> LicenseConfig:
+        return self._license
+
     def is_ready(self) -> bool:
         return self._broker.is_configured() and self._wifi.is_configured()
     
     def clear_credentials(self) -> None:
         self._broker.password = ""
         self._broker.username = ""
+        self._broker.admin_password = ""
         self._wifi.ssid = ""
         self._wifi.password = ""
         gc.collect()
