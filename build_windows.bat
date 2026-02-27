@@ -50,6 +50,7 @@ pyinstaller ^
     --hidden-import=rich.layout ^
     --hidden-import=rich.theme ^
     --collect-all=rich ^
+    --collect-all=cryptography ^
     run_rcc.py
 
 echo.

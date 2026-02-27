@@ -17,7 +17,8 @@ class RCCConsole:
         self.console = get_console()
     
     def clear(self) -> None:
-        self.console.clear()
+        import os
+        os.system('cls' if os.name == 'nt' else 'clear')
     
     def print(self, text: str = "", style: str = "text") -> None:
         self.console.print(text, style=style)
@@ -57,7 +58,7 @@ class RCCConsole:
         self.console.print("[menu.key][3][/menu.key] [menu]Provision Devices[/menu]")
         self.console.print("[menu.key][4][/menu.key] [menu]Reset Device[/menu]")
         self.console.print("[menu.key][5][/menu.key] [menu]Activate License[/menu]")
-        self.console.print("[menu.key][6][/menu.key] [menu]Migrate License (Transfer Token)[/menu]")
+        self.console.print("[menu.key][6][/menu.key] [menu]Migrate License[/menu]")
         self.console.print("[menu.key][Q][/menu.key] [menu]Quit[/menu]")
         self.console.print()
         print_divider()
