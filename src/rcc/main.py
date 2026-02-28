@@ -8,7 +8,7 @@ from typing import Optional, List
 from .config import get_config, SecureConfig
 from .discovery import discover_broker, verify_broker, DiscoveredBroker
 from .wifi_manager import get_wifi_manager, WiFiNetwork
-from .shelly_api import check_shelly_ap_mode, ShellyAPI
+from .shelly_api import ShellyAPI
 from .provisioner import create_provisioner, ProvisionedDevice
 from .ui import RCCConsole, print_banner, print_section, print_divider
 from .license_client import LicenseAdminClient
@@ -121,13 +121,13 @@ class RCCApp:
         self.config.broker.port = port
         
         device_pw = self.console.prompt_text(
-            "  MQTT Device Password (DeviceRCC)",
+            "  Server Device Password",
             password=False
         )
         self.config.broker.password = device_pw
         
         admin_pw = self.console.prompt_text(
-            "  MQTT Admin Password (ToolRCC)",
+            "  Server RCC-Tool Password",
             password=False
         )
         self.config.broker.admin_password = admin_pw
@@ -574,7 +574,7 @@ class RCCApp:
             return
 
         self.console.print()
-        self.console.print_info("Sending activation request to Pi...")
+        self.console.print_info("Activating license...")
 
         client = LicenseAdminClient(
             host=self.config.broker.address,
